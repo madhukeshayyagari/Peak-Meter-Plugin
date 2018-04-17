@@ -1,5 +1,11 @@
 #include "ErrorDef.h"
 #include "Ppm.h"
+#include <cmath>
+#include <iostream>
+
+
+using std::cout;
+using std::endl;
 
 Error_t CPpm::createInstance(CPpm *&pCPpm)
 {
@@ -24,6 +30,8 @@ Error_t CPpm::destroyInstance(CPpm *&pCPpm)
 
 CPpm::CPpm()
 {
+	//reset();
+	m_currentValue = 0.0f;
 	m_AlphaAT = 0.0f;
 	m_AlphaRT = 0.0f;
 	m_fSampleRate = 0.0f;
@@ -34,10 +42,12 @@ CPpm::CPpm()
 
 CPpm::~CPpm()
 {
+	//reset();
 	delete[] m_tempBuff;
 	delete[] m_vppmMax;
 	m_tempBuff = 0;
 	m_vppmMax = 0;
+	//return kNoError;
 }
 
 Error_t CPpm::initInstance(float fSampleRateInHz, int iNumChannels)
@@ -46,24 +56,22 @@ Error_t CPpm::initInstance(float fSampleRateInHz, int iNumChannels)
 	m_iNumChannels = iNumChannels;
 
 	//Set Alpha 
-	m_AlphaAT = 1 - exp(-2.2f / (m_fSampleRate*0.01));
+	//m_AlphaAT = 1 - exp(-2.2f / (m_fSampleRate*0.01));
+	m_AlphaAT = 0.005f;
 	m_AlphaRT = 1 - exp(-2.2f / (m_fSampleRate*1.5));
+	cout << m_AlphaAT<<"\n";
+	cout << m_AlphaRT << "\n";
 
 	//Initialize 
+	m_tempBuff = new float[m_iNumChannels];
 	m_vppmMax = new float[m_iNumChannels];
 	for (int i = 0; i < m_iNumChannels; i++)
 	{
-		m_vppmMax[i] = 0;
-	}
-
-	//Initialize
-	m_tempBuff = new float[m_iNumChannels];
-	for (int i = 0; i < m_iNumChannels; i++)
-	{
+		m_vppmMax[i] = -INFINITY;
 		m_tempBuff[i] = 0;
 	}
-
-
+	
+	return kNoError;
 
 }
 
@@ -73,18 +81,54 @@ Error_t CPpm::process(float **ppfInputBuffer, float *ppfOutputBuff, int iNumberO
 	for (int i = 0; i < m_iNumChannels; i++)
 	{
 		for (int j = 0; j < iNumberOfFrames; j++) {
-			if (m_tempBuff[i] > abs(ppfInputBuffer[i][j]))
+			if (m_tempBuff[i] > fabsf(ppfInputBuffer[i][j]))
 			{
-				ppfOutputBuff[i] = (1 - m_AlphaRT)*m_tempBuff[i];
+				m_currentValue = (1 - m_AlphaRT)*m_tempBuff[i];
 			}
-			else 
+			else
 			{
-				ppfOutputBuff[i] = m_AlphaAT * abs(ppfInputBuffer[i][j]) + (1 - m_AlphaAT)*m_tempBuff[i];
+				m_currentValue = m_AlphaAT * fabsf(ppfInputBuffer[i][j]) + (1 - m_AlphaAT)*m_tempBuff[i];
 			}
+			
+			m_tempBuff[i] = m_currentValue;
+
+			if (m_currentValue > m_vppmMax[i]) {
+				m_vppmMax[i] = m_currentValue;
+			}
+
 		}
-		m_tempBuff[i] = ppfOutputBuff[i];
+		cout << m_vppmMax[i] << "\n";
 	}
+
+	for (int i = 0; i < m_iNumChannels; i++)
+	{
+		if (m_vppmMax[i] < m_epsilon) {
+			m_vppmMax[i] = m_epsilon;
+	  }
+		cout << m_vppmMax[i] << "\n";
+		m_vppmMax[i] = 20 * log10(m_vppmMax[i]);
+		ppfOutputBuff[i] = m_vppmMax[i];
+	}
+
+
+
     return kNoError;
+}
+
+Error_t CPpm::reset()
+{
+	m_currentValue = 0.0f;
+	m_AlphaAT = 0.0f;
+	m_AlphaRT = 0.0f;
+	m_fSampleRate = 0.0f;
+	m_iNumChannels = 0;
+
+
+	delete[] m_tempBuff;
+	delete[] m_vppmMax;
+	m_tempBuff = 0;
+	m_vppmMax = 0;
+	return kNoError;
 }
 
 
